@@ -24,10 +24,11 @@ class GameController extends Controller
     public function start(Request $request)
     {
         $user = Auth::user();
+        $existingGame = $user->game()->first();
 
-        if ($user->game) {
-            $user->game->characters()->delete();
-            $user->game->delete();
+        if ($existingGame) {
+            $existingGame->characters()->delete();
+            $existingGame->delete();
         }
 
         $game = Game::create([
@@ -42,9 +43,9 @@ class GameController extends Controller
 
     public function continue()
     {
-        $user = Auth::user();
+        $game = Auth::user()->game()->first();
 
-        if (!$user->game) {
+        if (!$game) {
             return redirect()->route('menu');
         }
 
@@ -64,14 +65,12 @@ class GameController extends Controller
 
     public function exit(Request $request)
     {
-        Auth::user()->game;
-
         return redirect()->route('menu');
     }
 
     public function finish(Request $request)
     {
-        $game = Auth::user()->game;
+        $game = Auth::user()->game()->first();
 
         if ($game) {
             $game->characters()->delete();
