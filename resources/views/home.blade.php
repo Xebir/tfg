@@ -5,7 +5,7 @@
     <title>Inicio</title>
 </head>
 <body>
-    <h1>Bienvenido al juego</h1>
+    <h1>Bienvenido a Abyssal Rift</h1>
     <a href="{{ route('login') }}">Iniciar sesión</a>
     <a href="{{ route('register') }}">Crear cuenta</a>
 </body>
