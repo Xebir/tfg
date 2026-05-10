@@ -2,42 +2,81 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Game;
+use App\Services\GeneratorService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class GameController extends Controller
 {
+    public function __construct(
+        private GeneratorService $generator
+    ) {}
+
     public function menu()
     {
-        // TODO: cargar datos del usuario y su partida guardada (si existe)
-        return view('game.menu');
+        $user = Auth::user();
+        $hasGame = $user->game()->exists();
+
+        return view('game.menu', compact('hasGame'));
     }
 
-    public function start()
+    public function start(Request $request)
     {
-        // TODO: crear nueva Game, llamar a GeneratorService::generatePlayerTeam()
-        // redirigir a /game
+        $user = Auth::user();
+        $existingGame = $user->game()->first();
+
+        if ($existingGame) {
+            $existingGame->characters()->delete();
+            $existingGame->delete();
+        }
+
+        $game = Game::create([
+            'user_id' => $user->id,
+            'floor'   => 1,
+        ]);
+
+        $this->generator->generatePlayerTeam($game);
+
+        return redirect()->route('game.show');
     }
 
     public function continue()
     {
-        // TODO: verificar que existe partida guardada y redirigir a /game
+        $game = Auth::user()->game()->first();
+
+        if (!$game) {
+            return redirect()->route('menu');
+        }
+
+        return redirect()->route('game.show');
     }
 
     public function show()
     {
-        // TODO: cargar estado actual de la partida
-        return view('game.game');
+        $game = Auth::user()->game;
+
+        if (!$game) {
+            return redirect()->route('menu');
+        }
+
+        return view('game.game', compact('game'));
     }
 
     public function exit(Request $request)
     {
-        // TODO: guardar estado actual (ya persiste en BD, confirmar floor y HP)
-        // redirigir a /menu
+        return redirect()->route('menu');
     }
 
-    public function finish()
+    public function finish(Request $request)
     {
-        // TODO: marcar partida como terminada o eliminarla
-        // redirigir a /menu
+        $game = Auth::user()->game()->first();
+
+        if ($game) {
+            $game->characters()->delete();
+            $game->delete();
+        }
+
+        return redirect()->route('menu');
     }
 }

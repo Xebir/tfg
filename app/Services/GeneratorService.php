@@ -2,26 +2,127 @@
 
 namespace App\Services;
 
+use App\Models\Character;
 use App\Models\Game;
+use App\Models\Pasive;
+use App\Models\Skill;
+use Illuminate\Support\Collection;
 
 class GeneratorService
 {
-    /**
-     * Genera 3 personajes para el jugador al iniciar una partida nueva.
-     * Asigna stats aleatorios, un pasivo del catálogo y hasta 4 skills del catálogo.
-     */
-    public function generatePlayerTeam(Game $game): void
+    private const BASE_STATS = [
+        'min' => 50,
+        'max' => 100,
+    ];
+
+    private const ENEMY_BASE_STATS = [
+        'min' => 30,
+        'max' => 60,
+    ];
+
+    private const NAMES = [
+        'Blaze', 'Frost', 'Volt', 'Terra', 'Aqua', 'Shadow', 'Flare', 'Storm',
+        'Ember', 'Glacier', 'Thunder', 'Stone', 'Marine', 'Phantom', 'Inferno',
+        'Zephyr', 'Crystal', 'Onyx', 'Ruby', 'Sapphire', 'Emerald', 'Topaz',
+    ];
+
+    public function generatePlayerTeam(Game $game): Collection
     {
-        // TODO: implementar generación procedural del equipo del jugador
+        $pasives = Pasive::all();
+        $skills = Skill::all();
+
+        $characters = [];
+        for ($i = 0; $i < 5; $i++) {
+            $isRecruited = $i < 3;
+
+            $stats = $this->generateStats(self::BASE_STATS['min'], self::BASE_STATS['max'], 1);
+            $randomSkills = $skills->random(min(4, $skills->count()));
+            $randomPasive = $pasives->random();
+
+            $character = Character::create([
+                'game_id'        => $game->id,
+                'name'           => $this->generateName(),
+                'pasive_id'      => $randomPasive->id,
+                'hp'             => $stats['hp'],
+                'max_hp'         => $stats['hp'],
+                'physical_attack'  => $stats['physical_attack'],
+                'special_attack'   => $stats['special_attack'],
+                'physical_defense' => $stats['physical_defense'],
+                'special_defense'   => $stats['special_defense'],
+                'speed'          => $stats['speed'],
+                'level'          => 1,
+                'exp'            => 0,
+                'recruited'      => $isRecruited,
+                'alive'          => true,
+            ]);
+
+            $character->skills()->attach($randomSkills->pluck('id'));
+            $characters[] = $character;
+        }
+
+        return collect($characters);
     }
 
-    /**
-     * Genera los enemigos del piso actual.
-     * Los stats escalan según el número de piso.
-     */
-    public function generateEnemies(int $floor): array
+    public function generateEnemies(int $floor): Collection
     {
-        // TODO: implementar generación procedural de enemigos por piso
-        return [];
+        $pasives = Pasive::all();
+        $skills = Skill::all();
+
+        $scalingFactor = 1 + (($floor - 1) * 0.15);
+        $minStats = (int) floor(self::ENEMY_BASE_STATS['min'] * $scalingFactor);
+        $maxStats = (int) floor(self::ENEMY_BASE_STATS['max'] * $scalingFactor);
+
+        $enemyCount = $floor <= 3 ? 2 : 3;
+        $enemies = [];
+
+        for ($i = 0; $i < $enemyCount; $i++) {
+            $stats = $this->generateStats($minStats, $maxStats, $floor);
+
+            $enemy = new Character([
+                'game_id'           => 0,
+                'name'              => $this->generateName(),
+                'pasive_id'         => $pasives->random()->id,
+                'hp'                => $stats['hp'],
+                'max_hp'            => $stats['hp'],
+                'physical_attack'   => $stats['physical_attack'],
+                'special_attack'   => $stats['special_attack'],
+                'physical_defense' => $stats['physical_defense'],
+                'special_defense'  => $stats['special_defense'],
+                'speed'             => $stats['speed'],
+                'level'             => $floor,
+                'exp'               => 0,
+                'recruited'         => false,
+                'alive'             => true,
+            ]);
+
+            $randomSkills = $skills->random(min(4, $skills->count()));
+            $enemy->setRelation('skills', $randomSkills);
+
+            $enemies[] = $enemy;
+        }
+
+        return collect($enemies);
+    }
+
+    private function generateStats(int $min, int $max, int $floor): array
+    {
+        return [
+            'hp'               => $this->randomStat($min, $max),
+            'physical_attack'  => $this->randomStat($min, $max),
+            'special_attack'   => $this->randomStat($min, $max),
+            'physical_defense' => $this->randomStat($min, $max),
+            'special_defense'  => $this->randomStat($min, $max),
+            'speed'            => $this->randomStat($min, $max),
+        ];
+    }
+
+    private function randomStat(int $min, int $max): int
+    {
+        return rand($min, $max);
+    }
+
+    private function generateName(): string
+    {
+        return self::NAMES[array_rand(self::NAMES)];
     }
 }

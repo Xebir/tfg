@@ -12,6 +12,7 @@ class Character extends Model
 
     protected $fillable = [
         'game_id',
+        'name',
         'pasive_id',
         'hp',
         'max_hp',
