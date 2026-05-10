@@ -9,7 +9,7 @@ class Pasive extends Model
 {
     public $timestamps = false;
 
-    protected $fillable = ['description'];
+    protected $fillable = ['name', 'description'];
 
     public function characters(): HasMany
     {

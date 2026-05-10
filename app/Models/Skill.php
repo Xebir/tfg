@@ -9,7 +9,7 @@ class Skill extends Model
 {
     public $timestamps = false;
 
-    protected $fillable = ['description', 'damage', 'damage_type'];
+    protected $fillable = ['name', 'description', 'damage', 'damage_type'];
 
     protected $casts = [
         'damage_type' => 'boolean',
