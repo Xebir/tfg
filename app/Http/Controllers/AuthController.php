@@ -2,32 +2,57 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class AuthController extends Controller
 {
     public function showLogin()
     {
-        return view('auth.login');
+        return view('login');
     }
 
     public function login(Request $request)
     {
-        // TODO: validar credenciales y autenticar
+        $credentials = $request->validate([
+            'email'    => ['required', 'email'],
+            'password' => ['required'],
+        ]);
+
+        if (Auth::attempt($credentials)) {
+            $request->session()->regenerate();
+            return redirect()->intended(route('menu'));
+        }
+
+        return back()->withErrors(['email' => 'Credenciales incorrectas.'])->onlyInput('email');
     }
 
     public function showRegister()
     {
-        return view('auth.register');
+        return view('register');
     }
 
     public function register(Request $request)
     {
-        // TODO: validar datos, crear usuario y autenticar
+        $data = $request->validate([
+            'name'     => ['required', 'string', 'min:3', 'max:255'],
+            'email'    => ['required', 'email', 'max:255', 'unique:users'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        $user = User::create($data);
+        Auth::login($user);
+
+        return redirect()->route('menu');
     }
 
     public function logout(Request $request)
     {
-        // TODO: cerrar sesión y redirigir a HOME
+        Auth::logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return redirect()->route('home');
     }
 }
