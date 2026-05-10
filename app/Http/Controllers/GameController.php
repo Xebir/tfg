@@ -68,6 +68,12 @@ class GameController extends Controller
         return redirect()->route('menu');
     }
 
+    public function historial()
+    {
+        // TODO: implementar historial de partidas
+        return view('game.historial');
+    }
+
     public function finish(Request $request)
     {
         $game = Auth::user()->game()->first();

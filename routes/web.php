@@ -24,5 +24,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/game/exit', [GameController::class, 'exit'])->name('game.exit');
     Route::post('/game/finish', [GameController::class, 'finish'])->name('game.finish');
 
+    Route::get('/historial', [GameController::class, 'historial'])->name('historial');
+
     Route::post('/battle/action', [BattleController::class, 'action'])->name('battle.action');
 });
