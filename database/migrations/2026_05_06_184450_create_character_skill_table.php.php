@@ -11,7 +11,16 @@ return new class extends Migration
      */
     public function up(): void
     {
-        //
+        Schema::create('character_skill', function (Blueprint $table) {
+            $table->foreignId('character_id')->constrained()->onDelete('cascade');
+            $table->foreignId('skill_id')->constrained()->onDelete('cascade');
+            $table->primary(['character_id', 'skill_id']);
+        });
+
+        Schema::table('character_skill', function (Blueprint $table) {
+            $table->index('character_id');
+            $table->index('skill_id');
+        });
     }
 
     /**
