@@ -25,3 +25,6 @@ Thumbs.db
 GEMINI.md
 .geminiignore
 AGENT.md
+CLAUDE.md
+.claudeignore
+.claude/

@@ -1,34 +1,49 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Iniciar sesión</title>
-</head>
-<body>
-    <h1>Iniciar sesión</h1>
+@extends('layouts.abyssal')
 
-    <form method="POST" action="{{ route('login') }}">
-        @csrf
+@section('title', 'Iniciar sesión — Abyssal Rift')
 
-        <div>
-            <label for="email">Correo electrónico</label>
-            <input type="email" id="email" name="email" value="{{ old('email') }}" required autofocus>
-            @error('email')
-                <span>{{ $message }}</span>
-            @enderror
-        </div>
+@section('content')
+    <div class="brand">
+        <a href="{{ route('home') }}" class="brand-link">
+            <h1 class="brand-title">Abyssal Rift</h1>
+        </a>
+        <div class="brand-divider"></div>
+    </div>
 
-        <div>
-            <label for="password">Contraseña</label>
-            <input type="password" id="password" name="password" required>
-            @error('password')
-                <span>{{ $message }}</span>
-            @enderror
-        </div>
+    <div class="glass-card">
+        <h2 class="form-title">Acceder al Abismo</h2>
 
-        <button type="submit">Entrar</button>
-    </form>
+        <form method="POST" action="{{ route('login') }}">
+            @csrf
 
-    <p>¿No tienes cuenta? <a href="{{ route('register') }}">Regístrate</a></p>
-</body>
-</html>
+            <div class="form-group">
+                <label for="email">Correo electrónico</label>
+                <input type="email" id="email" name="email"
+                       value="{{ old('email') }}"
+                       placeholder="tu@correo.com"
+                       required autofocus>
+                @error('email')
+                    <p class="form-error">{{ $message }}</p>
+                @enderror
+            </div>
+
+            <div class="form-group">
+                <label for="password">Contraseña</label>
+                <input type="password" id="password" name="password"
+                       placeholder="••••••••"
+                       required>
+                @error('password')
+                    <p class="form-error">{{ $message }}</p>
+                @enderror
+            </div>
+
+            <button type="submit" class="btn-epic">
+                <span>Entrar</span>
+            </button>
+        </form>
+
+        <p class="form-link">
+            ¿No tienes cuenta? <a href="{{ route('register') }}">Únete al Rift</a>
+        </p>
+    </div>
+@endsection
