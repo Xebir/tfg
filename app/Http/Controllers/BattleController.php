@@ -13,9 +13,10 @@ class BattleController extends Controller
         if (!$game) return response()->json(['redirect' => route('menu')]);
 
         $validated = $request->validate([
-            'skill_id'     => ['required', 'integer'],
-            'target_index' => ['required', 'integer', 'min:0'],
+            'type'         => ['required', 'in:skill,switch'],
             'char_index'   => ['required', 'integer', 'min:0'],
+            'skill_id'     => ['nullable', 'integer'],
+            'target_index' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $team    = $game->characters()->where('recruited', true)->with('skills')->get();
@@ -25,9 +26,42 @@ class BattleController extends Controller
             return response()->json(['redirect' => route('game.show')]);
         }
 
-        $charIndex   = (int) $validated['char_index'];
-        $targetIndex = (int) $validated['target_index'];
-        $skillId     = (int) $validated['skill_id'];
+        $charIndex = (int) $validated['char_index'];
+        $events    = [];
+
+        // ── CAMBIO DE PERSONAJE (cuesta un turno) ──────────────────────────
+        if ($validated['type'] === 'switch') {
+            $newChar = $team[$charIndex] ?? $team->first();
+
+            if (!$newChar->alive) {
+                return response()->json(['error' => 'char_dead']);
+            }
+
+            $events[] = ['type' => 'switch', 'char_index' => $charIndex, 'name' => $newChar->name];
+
+            $aliveEnemies = $enemies->filter(fn($e) => $e->alive);
+            $this->doEnemyAttacks($events, $aliveEnemies, $team, $charIndex);
+
+            session(['enemies' => $enemies]);
+
+            if ($team->every(fn($c) => !$c->alive)) {
+                $game->characters()->delete();
+                $game->delete();
+                session()->forget('enemies');
+                session()->forget('active_char_index');
+                $events[] = ['type' => 'game_over'];
+                return response()->json(['events' => $events]);
+            }
+
+            $finalChar = $this->resolveActiveChar($events, $charIndex);
+            session(['active_char_index' => $finalChar]);
+
+            return response()->json(['events' => $events]);
+        }
+
+        // ── USAR HABILIDAD ─────────────────────────────────────────────────
+        $targetIndex = (int) ($validated['target_index'] ?? 0);
+        $skillId     = (int) ($validated['skill_id']     ?? 0);
 
         $attacker = $team[$charIndex] ?? $team->first();
         $target   = $enemies[$targetIndex] ?? null;
@@ -37,7 +71,6 @@ class BattleController extends Controller
             return response()->json(['error' => 'invalid_action']);
         }
 
-        $events       = [];
         $aliveEnemies = $enemies->filter(fn($e) => $e->alive);
         $fastestEnemy = $aliveEnemies->sortByDesc('speed')->first();
         $playerFirst  = $attacker->speed >= ($fastestEnemy ? $fastestEnemy->speed : 0);
@@ -46,37 +79,52 @@ class BattleController extends Controller
             $this->doPlayerAttack($events, $attacker, $skill, $target, $targetIndex);
             $aliveEnemies = $enemies->filter(fn($e) => $e->alive);
             if ($aliveEnemies->isNotEmpty()) {
-                $this->doEnemyAttacks($events, $aliveEnemies, $team);
+                $this->doEnemyAttacks($events, $aliveEnemies, $team, $charIndex);
             }
         } else {
-            $this->doEnemyAttacks($events, $aliveEnemies, $team);
+            $this->doEnemyAttacks($events, $aliveEnemies, $team, $charIndex);
             if ($attacker->alive) {
                 $this->doPlayerAttack($events, $attacker, $skill, $target, $targetIndex);
             }
         }
 
-        // Persist updated enemies
         session(['enemies' => $enemies]);
 
-        // All enemies defeated → advance floor
+        // Victoria
         if ($enemies->every(fn($e) => !$e->alive)) {
             $game->floor++;
             $game->save();
             session()->forget('enemies');
+            $finalChar = $this->resolveActiveChar($events, $charIndex);
+            session(['active_char_index' => $finalChar]);
             $events[] = ['type' => 'victory', 'floor' => $game->floor];
             return response()->json(['events' => $events]);
         }
 
-        // All player chars defeated → game over
+        // Derrota
         if ($team->every(fn($c) => !$c->alive)) {
             $game->characters()->delete();
             $game->delete();
             session()->forget('enemies');
+            session()->forget('active_char_index');
             $events[] = ['type' => 'game_over'];
             return response()->json(['events' => $events]);
         }
 
+        $finalChar = $this->resolveActiveChar($events, $charIndex);
+        session(['active_char_index' => $finalChar]);
+
         return response()->json(['events' => $events]);
+    }
+
+    // Devuelve el char_index activo tras procesar todos los eventos (puede haber auto-switch)
+    private function resolveActiveChar(array $events, int $default): int
+    {
+        $last = $default;
+        foreach ($events as $ev) {
+            if ($ev['type'] === 'switch') $last = $ev['char_index'];
+        }
+        return $last;
     }
 
     private function doPlayerAttack(array &$events, $attacker, $skill, $target, int $targetIndex): void
@@ -93,9 +141,9 @@ class BattleController extends Controller
         if ($target->hp <= 0) { $target->alive = false; $target->hp = 0; }
 
         $events[] = [
-            'type'   => 'hp_update', 'entity' => 'enemy',
-            'index'  => $targetIndex,
-            'hp'     => $target->hp, 'max_hp' => $target->max_hp, 'damage' => $dmg,
+            'type'  => 'hp_update', 'entity' => 'enemy',
+            'index' => $targetIndex,
+            'hp'    => $target->hp, 'max_hp' => $target->max_hp, 'damage' => $dmg,
         ];
 
         if (!$target->alive) {
@@ -103,14 +151,13 @@ class BattleController extends Controller
         }
     }
 
-    private function doEnemyAttacks(array &$events, $aliveEnemies, $team): void
+    private function doEnemyAttacks(array &$events, $aliveEnemies, $team, int $activeCharIndex): void
     {
         foreach ($aliveEnemies as $eIdx => $enemy) {
-            $aliveChars = $team->filter(fn($c) => $c->alive);
-            if ($aliveChars->isEmpty()) break;
+            $defender = $team[$activeCharIndex] ?? null;
+            if (!$defender || !$defender->alive) break;
 
-            $defender   = $aliveChars->random();
-            $defIdx     = $team->search(fn($c) => $c->id === $defender->id);
+            $defIdx = $activeCharIndex;
             $enemySkill = ($enemy->skills ?? collect())->isNotEmpty()
                 ? $enemy->skills->random()
                 : null;
@@ -129,21 +176,15 @@ class BattleController extends Controller
             if ($defender->hp <= 0) { $defender->alive = false; $defender->hp = 0; }
 
             $events[] = [
-                'type'   => 'hp_update', 'entity' => 'player',
-                'index'  => $defIdx,
-                'hp'     => $defender->hp, 'max_hp' => $defender->max_hp, 'damage' => $eDmg,
+                'type'  => 'hp_update', 'entity' => 'player',
+                'index' => $defIdx,
+                'hp'    => $defender->hp, 'max_hp' => $defender->max_hp, 'damage' => $eDmg,
             ];
 
             $defender->save();
 
             if (!$defender->alive) {
                 $events[] = ['type' => 'faint', 'entity' => 'player', 'index' => $defIdx, 'name' => $defender->name];
-
-                $next = $team->filter(fn($c) => $c->alive)->first();
-                if ($next) {
-                    $nextIdx  = $team->search(fn($c) => $c->id === $next->id);
-                    $events[] = ['type' => 'switch', 'char_index' => $nextIdx, 'name' => $next->name];
-                }
             }
         }
     }
