@@ -60,11 +60,23 @@ class GameController extends Controller
             return redirect()->route('menu');
         }
 
-        return view('game.game', compact('game'));
+        $team = $game->characters()
+            ->where('recruited', true)
+            ->with('skills', 'pasive')
+            ->get();
+
+        $enemies = session('enemies');
+        if (!$enemies) {
+            $enemies = $this->generator->generateEnemies($game->floor);
+            session(['enemies' => $enemies]);
+        }
+
+        return view('game.game', compact('game', 'team', 'enemies'));
     }
 
     public function exit(Request $request)
     {
+        session()->forget('enemies');
         return redirect()->route('menu');
     }
 
@@ -83,6 +95,7 @@ class GameController extends Controller
             $game->delete();
         }
 
+        session()->forget('enemies');
         return redirect()->route('menu');
     }
 }

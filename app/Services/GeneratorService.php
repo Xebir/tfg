@@ -26,6 +26,9 @@ class GeneratorService
         'Zephyr', 'Crystal', 'Onyx', 'Ruby', 'Sapphire', 'Emerald', 'Topaz',
     ];
 
+    private const PLAYER_IMAGES = ['hero_1', 'hero_2', 'hero_3'];
+    private const ENEMY_IMAGES  = ['enemy_1', 'enemy_2', 'enemy_3', 'enemy_4', 'enemy_5'];
+
     public function generatePlayerTeam(Game $game): Collection
     {
         $pasives = Pasive::all();
@@ -40,20 +43,21 @@ class GeneratorService
             $randomPasive = $pasives->random();
 
             $character = Character::create([
-                'game_id'        => $game->id,
-                'name'           => $this->generateName(),
-                'pasive_id'      => $randomPasive->id,
-                'hp'             => $stats['hp'],
-                'max_hp'         => $stats['hp'],
+                'game_id'          => $game->id,
+                'name'             => $this->generateName(),
+                'pasive_id'        => $randomPasive->id,
+                'hp'               => $stats['hp'],
+                'max_hp'           => $stats['hp'],
                 'physical_attack'  => $stats['physical_attack'],
                 'special_attack'   => $stats['special_attack'],
                 'physical_defense' => $stats['physical_defense'],
-                'special_defense'   => $stats['special_defense'],
-                'speed'          => $stats['speed'],
-                'level'          => 1,
-                'exp'            => 0,
-                'recruited'      => $isRecruited,
-                'alive'          => true,
+                'special_defense'  => $stats['special_defense'],
+                'speed'            => $stats['speed'],
+                'level'            => 1,
+                'exp'              => 0,
+                'recruited'        => $isRecruited,
+                'alive'            => true,
+                'imagen'           => self::PLAYER_IMAGES[$i % count(self::PLAYER_IMAGES)],
             ]);
 
             $character->skills()->attach($randomSkills->pluck('id'));
@@ -79,20 +83,21 @@ class GeneratorService
             $stats = $this->generateStats($minStats, $maxStats, $floor);
 
             $enemy = new Character([
-                'game_id'           => 0,
-                'name'              => $this->generateName(),
-                'pasive_id'         => $pasives->random()->id,
-                'hp'                => $stats['hp'],
-                'max_hp'            => $stats['hp'],
-                'physical_attack'   => $stats['physical_attack'],
+                'game_id'          => 0,
+                'name'             => $this->generateName(),
+                'pasive_id'        => $pasives->random()->id,
+                'hp'               => $stats['hp'],
+                'max_hp'           => $stats['hp'],
+                'physical_attack'  => $stats['physical_attack'],
                 'special_attack'   => $stats['special_attack'],
                 'physical_defense' => $stats['physical_defense'],
                 'special_defense'  => $stats['special_defense'],
-                'speed'             => $stats['speed'],
-                'level'             => $floor,
-                'exp'               => 0,
-                'recruited'         => false,
-                'alive'             => true,
+                'speed'            => $stats['speed'],
+                'level'            => $floor,
+                'exp'              => 0,
+                'recruited'        => false,
+                'alive'            => true,
+                'imagen'           => self::ENEMY_IMAGES[$i % count(self::ENEMY_IMAGES)],
             ]);
 
             $randomSkills = $skills->random(min(4, $skills->count()));
