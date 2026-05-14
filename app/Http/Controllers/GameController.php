@@ -37,6 +37,7 @@ class GameController extends Controller
         ]);
 
         $this->generator->generatePlayerTeam($game);
+        session()->forget('active_char_index');
 
         return redirect()->route('game.show');
     }
@@ -71,12 +72,19 @@ class GameController extends Controller
             session(['enemies' => $enemies]);
         }
 
-        return view('game.game', compact('game', 'team', 'enemies'));
+        $activeCharIndex = (int) session('active_char_index', 0);
+        if (!isset($team[$activeCharIndex]) || !$team[$activeCharIndex]->alive) {
+            $activeCharIndex = $team->search(fn($c) => $c->alive) ?: 0;
+            session(['active_char_index' => $activeCharIndex]);
+        }
+
+        return view('game.game', compact('game', 'team', 'enemies', 'activeCharIndex'));
     }
 
     public function exit(Request $request)
     {
         session()->forget('enemies');
+        session()->forget('active_char_index');
         return redirect()->route('menu');
     }
 
@@ -96,6 +104,7 @@ class GameController extends Controller
         }
 
         session()->forget('enemies');
+        session()->forget('active_char_index');
         return redirect()->route('menu');
     }
 }

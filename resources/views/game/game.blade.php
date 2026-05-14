@@ -643,17 +643,15 @@
                     ['style' => '--pc:#06b6d4;--pc-dim:#0e7490', 'hex' => '#06b6d4'],
                     ['style' => '--pc:#db2777;--pc-dim:#9d174d', 'hex' => '#db2777'],
                 ];
-                $activeCharIndex = 0;
-                $activeChar = $team[$activeCharIndex];
             @endphp
 
             <div class="player-sprite-area" id="player-sprite">
                 <div class="player-figure">
-                    <div class="p-sprite" id="p-svg-wrap" style="{{ $charColors[0]['style'] }}">
+                    <div class="p-sprite" id="p-svg-wrap" style="{{ $charColors[$activeCharIndex]['style'] }}">
                         <div class="p-aura"></div>
                         @include('game.sprites.player', [
-                            'imagen' => $activeChar->imagen ?? 'hero_1',
-                            'nombre' => $activeChar->name,
+                            'imagen' => $team[$activeCharIndex]->imagen ?? 'hero_1',
+                            'nombre' => $team[$activeCharIndex]->name,
                             'size'   => 80,
                         ])
                     </div>
@@ -666,7 +664,7 @@
                     $hpPct   = $char->max_hp > 0 ? ($char->hp / $char->max_hp) * 100 : 0;
                     $hpClass = $hpPct > 50 ? '' : ($hpPct > 25 ? 'mid' : 'low');
                 @endphp
-                <div class="info-player" id="info-player-{{ $i }}" style="{{ $i !== 0 ? 'display:none' : '' }}">
+                <div class="info-player" id="info-player-{{ $i }}" style="{{ $i !== $activeCharIndex ? 'display:none' : '' }}">
                     <div class="info-name-row">
                         <span class="info-name">{{ $char->name }}</span>
                         <span class="info-level">Nv{{ $char->level }}</span>
@@ -688,7 +686,7 @@
             {{-- Caja de diálogo --}}
             <div class="dialog-box">
                 <div class="dialog-text" id="dialog-text">
-                    Que hara <span class="char-name-hl">{{ $team[0]->name }}</span>?
+                    Que hara <span class="char-name-hl">{{ $team[$activeCharIndex]->name }}</span>?
                     <span class="dialog-cursor"></span>
                 </div>
             </div>
@@ -706,7 +704,7 @@
             {{-- Panel habilidades --}}
             <div class="skills-panel" id="skills-panel">
                 @foreach($team as $i => $char)
-                    <div id="skill-list-{{ $i }}" style="{{ $i !== 0 ? 'display:none' : '' }}; display: {{ $i === 0 ? 'contents' : 'none' }}">
+                    <div id="skill-list-{{ $i }}" style="display:{{ $i === $activeCharIndex ? 'contents' : 'none' }}">
                         <div class="skill-grid">
                             @foreach($char->skills->take(4) as $skill)
                                 <button class="skill-btn" onclick="useSkill({{ $skill->id }}, '{{ addslashes($skill->name) }}')">
@@ -728,7 +726,7 @@
                     @php
                         $hpPct = $char->max_hp > 0 ? ($char->hp / $char->max_hp) * 100 : 0;
                     @endphp
-                    <div class="team-member {{ $i === 0 ? 'active-char' : '' }} {{ !$char->alive ? 'dead' : '' }}"
+                    <div class="team-member {{ $i === $activeCharIndex ? 'active-char' : '' }} {{ !$char->alive ? 'dead' : '' }}"
                          onclick="switchChar({{ $i }})">
                         <div class="tm-dot" style="background:{{ $charColors[$i]['hex'] }};box-shadow:0 0 5px {{ $charColors[$i]['hex'] }}"></div>
                         <span class="tm-name">{{ $char->name }} Nv{{ $char->level }}</span>
@@ -782,9 +780,10 @@
         window.addEventListener('resize', resize); resize(); draw();
 
         // ── ESTADO ──
-        let activeCharIndex   = 0;
+        let activeCharIndex   = {{ $activeCharIndex }};
         let activeTargetIndex = 0;
         let battleBusy        = false;
+        let forcedSwitch      = false;
 
         const charNames    = @json($team->pluck('name'));
         const charColors   = @json(array_column($charColors, 'style'));
@@ -906,9 +905,21 @@
                         return;
                 }
             }
-            // Turno completado — devolver control al jugador
+
+            // Si llegamos aquí no hay game_over ni victory.
+            // Comprobar si el personaje activo ha muerto → cambio forzado gratis.
+            const activeEl  = document.querySelectorAll('.team-member')[activeCharIndex];
+            const activeDead = activeEl && activeEl.classList.contains('dead');
+
             setBusy(false);
-            showActions();
+
+            if (activeDead) {
+                forcedSwitch = true;
+                showTeam();
+                setDialog('Elige tu siguiente personaje!');
+            } else {
+                showActions();
+            }
         }
 
         // ── MODAL GAME OVER ──
@@ -935,6 +946,7 @@
                         'X-CSRF-TOKEN':  CSRF,
                     },
                     body: JSON.stringify({
+                        type:         'skill',
                         skill_id:     skillId,
                         target_index: activeTargetIndex,
                         char_index:   activeCharIndex,
@@ -987,19 +999,49 @@
             activeTargetIndex = index;
         }
 
-        // ── CAMBIAR PERSONAJE (manual) ──
-        function switchChar(index) {
+        // ── CAMBIAR PERSONAJE ──
+        async function switchChar(index) {
             if (battleBusy) return;
-            activeCharIndex = index;
-            document.querySelectorAll('.info-player').forEach((b, i) => {
-                b.style.display = i === index ? '' : 'none';
-            });
-            document.querySelectorAll('[id^="skill-list-"]').forEach((el, i) => {
-                el.style.display = i === index ? 'contents' : 'none';
-            });
-            document.querySelectorAll('.team-member').forEach((m, i) => {
-                m.classList.toggle('active-char', i === index);
-            });
+
+            // Cambio forzado por muerte — gratis, solo actualiza la UI
+            if (forcedSwitch) {
+                const member = document.querySelectorAll('.team-member')[index];
+                if (!member || member.classList.contains('dead')) return;
+                forcedSwitch = false;
+                handleSwitch({ char_index: index, name: charNames[index] });
+                showActions();
+                return;
+            }
+
+            if (index === activeCharIndex) { showActions(); return; }
+
+            setBusy(true);
+            showActions();
+            setDialog(`Cambiando a ${charNames[index]}...`);
+            await sleep(300);
+
+            try {
+                const res = await fetch('{{ route("battle.action") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept':       'application/json',
+                        'X-CSRF-TOKEN': CSRF,
+                    },
+                    body: JSON.stringify({ type: 'switch', char_index: index }),
+                });
+
+                if (res.redirected || !res.ok) { window.location.reload(); return; }
+
+                const data = await res.json();
+                if (data.redirect) { window.location.href = data.redirect; return; }
+                if (data.events)   { await playEvents(data.events); return; }
+
+            } catch (e) {
+                window.location.reload();
+            }
+
+            setBusy(false);
             showActions();
         }
 
