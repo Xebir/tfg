@@ -27,6 +27,8 @@ class GameController extends Controller
         $existingGame = $user->game()->first();
 
         if ($existingGame) {
+            session()->forget("game_{$existingGame->id}_enemies");
+            session()->forget("game_{$existingGame->id}_turn");
             $existingGame->characters()->delete();
             $existingGame->delete();
         }
@@ -37,7 +39,16 @@ class GameController extends Controller
         ]);
 
         $this->generator->generatePlayerTeam($game);
-        session()->forget('active_char_index');
+
+        $firstCharacter = $game->characters()
+            ->where('recruited', true)->first();
+        if ($firstCharacter) {
+            $game->update(['active_character_id' => $firstCharacter->id]);
+        }
+
+        $enemies = $this->generateEnemiesForFloor(1);
+        session(["game_{$game->id}_enemies" => $enemies]);
+        session(["game_{$game->id}_turn" => 0]);
 
         return redirect()->route('game.show');
     }
@@ -48,6 +59,13 @@ class GameController extends Controller
 
         if (!$game) {
             return redirect()->route('menu');
+        }
+
+        $enemies = session("game_{$game->id}_enemies", []);
+        if (empty($enemies)) {
+            $enemies = $this->generateEnemiesForFloor($game->floor);
+            session(["game_{$game->id}_enemies" => $enemies]);
+            session(["game_{$game->id}_turn" => 0]);
         }
 
         return redirect()->route('game.show');
@@ -61,36 +79,59 @@ class GameController extends Controller
             return redirect()->route('menu');
         }
 
+        $game->load('activeCharacter.skills', 'activeCharacter.pasive');
+
         $team = $game->characters()
             ->where('recruited', true)
             ->with('skills', 'pasive')
             ->get();
 
-        $enemies = session('enemies');
-        if (!$enemies) {
-            $enemies = $this->generator->generateEnemies($game->floor);
-            session(['enemies' => $enemies]);
+        $activeCharIndex = 0;
+        if ($game->active_character_id) {
+            foreach ($team as $i => $char) {
+                if ($char->id === $game->active_character_id) {
+                    $activeCharIndex = $i;
+                    break;
+                }
+            }
         }
 
-        $activeCharIndex = (int) session('active_char_index', 0);
-        if (!isset($team[$activeCharIndex]) || !$team[$activeCharIndex]->alive) {
-            $activeCharIndex = $team->search(fn($c) => $c->alive) ?: 0;
-            session(['active_char_index' => $activeCharIndex]);
+        $rawEnemies = session("game_{$game->id}_enemies", []);
+        if (empty($rawEnemies)) {
+            $rawEnemies = $this->generateEnemiesForFloor($game->floor);
+            session(["game_{$game->id}_enemies" => $rawEnemies]);
+            session(["game_{$game->id}_turn" => 0]);
+        }
+        $enemies = collect();
+        foreach ($rawEnemies as $e) {
+            $enemies->push((object) $e);
         }
 
-        return view('game.game', compact('game', 'team', 'enemies', 'activeCharIndex'));
+        $charColors = [
+            ['style' => '--pc:#7c3aed;--pc-dim:#4c1d95', 'hex' => '#7c3aed'],
+            ['style' => '--pc:#06b6d4;--pc-dim:#0e7490', 'hex' => '#06b6d4'],
+            ['style' => '--pc:#db2777;--pc-dim:#9d174d', 'hex' => '#db2777'],
+        ];
+
+        $enemyColors = [
+            ['--ec:#ef4444', 'ec' => '#ef4444'],
+            ['--ec:#f97316', 'ec' => '#f97316'],
+            ['--ec:#a855f7', 'ec' => '#a855f7'],
+        ];
+
+        return view('game.game', compact(
+            'game', 'enemies', 'team', 'activeCharIndex',
+            'charColors', 'enemyColors'
+        ));
     }
 
     public function exit(Request $request)
     {
-        session()->forget('enemies');
-        session()->forget('active_char_index');
         return redirect()->route('menu');
     }
 
     public function historial()
     {
-        // TODO: implementar historial de partidas
         return view('game.historial');
     }
 
@@ -99,12 +140,42 @@ class GameController extends Controller
         $game = Auth::user()->game()->first();
 
         if ($game) {
+            session()->forget("game_{$game->id}_enemies");
+            session()->forget("game_{$game->id}_turn");
             $game->characters()->delete();
             $game->delete();
         }
 
-        session()->forget('enemies');
-        session()->forget('active_char_index');
         return redirect()->route('menu');
+    }
+
+    public function generateEnemiesForFloor(int $floor): array
+    {
+        if (in_array($floor, [10, 20, 30, 40], true)) {
+            $enemies = $this->generator->generateMiniboss($floor);
+        } elseif ($floor === 50) {
+            $enemies = $this->generator->generateFinalBoss($floor);
+        } else {
+            $enemies = $this->generator->generateEnemies($floor);
+        }
+
+        return $enemies->map(function ($e) {
+            return [
+                'id'               => $e->id,
+                'name'             => $e->name,
+                'hp'               => $e->hp,
+                'max_hp'           => $e->max_hp,
+                'physical_attack'  => $e->physical_attack,
+                'special_attack'  => $e->special_attack,
+                'physical_defense' => $e->physical_defense,
+                'special_defense' => $e->special_defense,
+                'speed'            => $e->speed,
+                'level'            => $e->level,
+                'alive'            => $e->alive,
+                'skills'           => $e->relationLoaded('skills')
+                    ? $e->skills->toArray()
+                    : [],
+            ];
+        })->values()->toArray();
     }
 }

@@ -2,197 +2,285 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\GeneratorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class BattleController extends Controller
 {
+    public function __construct(
+        private GeneratorService $generator
+    ) {}
+
     public function action(Request $request)
     {
         $game = Auth::user()->game()->first();
-        if (!$game) return response()->json(['redirect' => route('menu')]);
-
-        $validated = $request->validate([
-            'type'         => ['required', 'in:skill,switch'],
-            'char_index'   => ['required', 'integer', 'min:0'],
-            'skill_id'     => ['nullable', 'integer'],
-            'target_index' => ['nullable', 'integer', 'min:0'],
-        ]);
-
-        $team    = $game->characters()->where('recruited', true)->with('skills')->get();
-        $enemies = session('enemies');
-
-        if (!$enemies || $team->isEmpty()) {
-            return response()->json(['redirect' => route('game.show')]);
+        if (!$game) {
+            return response()->json(['redirect' => route('menu')], 404);
         }
 
-        $charIndex = (int) $validated['char_index'];
-        $events    = [];
+        $type = $request->input('type');
 
-        // ── CAMBIO DE PERSONAJE (cuesta un turno) ──────────────────────────
-        if ($validated['type'] === 'switch') {
-            $newChar = $team[$charIndex] ?? $team->first();
+        $game->load('activeCharacter.skills', 'activeCharacter.pasive');
 
-            if (!$newChar->alive) {
-                return response()->json(['error' => 'char_dead']);
+        $team = $game->characters()
+            ->where('recruited', true)
+            ->with('skills', 'pasive')
+            ->get();
+
+        $activeCharIndex = $request->input('char_index', 0);
+        $active = $team->get($activeCharIndex);
+
+        if (!$active || !$active->alive) {
+            $first = $team->where('alive', true)->first();
+            if (!$first) {
+                return response()->json(['events' => [['type' => 'game_over']]]);
             }
-
-            $events[] = ['type' => 'switch', 'char_index' => $charIndex, 'name' => $newChar->name];
-
-            $aliveEnemies = $enemies->filter(fn($e) => $e->alive);
-            $this->doEnemyAttacks($events, $aliveEnemies, $team, $charIndex);
-
-            session(['enemies' => $enemies]);
-
-            if ($team->every(fn($c) => !$c->alive)) {
-                $game->characters()->delete();
-                $game->delete();
-                session()->forget('enemies');
-                session()->forget('active_char_index');
-                $events[] = ['type' => 'game_over'];
-                return response()->json(['events' => $events]);
-            }
-
-            $finalChar = $this->resolveActiveChar($events, $charIndex);
-            session(['active_char_index' => $finalChar]);
-
-            return response()->json(['events' => $events]);
+            $activeCharIndex = $team->search(fn($c) => $c->id === $first->id);
+            $active = $first;
+            $game->update(['active_character_id' => $active->id]);
         }
 
-        // ── USAR HABILIDAD ─────────────────────────────────────────────────
-        $targetIndex = (int) ($validated['target_index'] ?? 0);
-        $skillId     = (int) ($validated['skill_id']     ?? 0);
+        $enemies = session("game_{$game->id}_enemies", []);
+        $events = [];
 
-        $attacker = $team[$charIndex] ?? $team->first();
-        $target   = $enemies[$targetIndex] ?? null;
-        $skill    = $attacker->skills->firstWhere('id', $skillId);
-
-        if (!$skill || !$target || !$target->alive || !$attacker->alive) {
-            return response()->json(['error' => 'invalid_action']);
-        }
-
-        $aliveEnemies = $enemies->filter(fn($e) => $e->alive);
-        $fastestEnemy = $aliveEnemies->sortByDesc('speed')->first();
-        $playerFirst  = $attacker->speed >= ($fastestEnemy ? $fastestEnemy->speed : 0);
-
-        if ($playerFirst) {
-            $this->doPlayerAttack($events, $attacker, $skill, $target, $targetIndex);
-            $aliveEnemies = $enemies->filter(fn($e) => $e->alive);
-            if ($aliveEnemies->isNotEmpty()) {
-                $this->doEnemyAttacks($events, $aliveEnemies, $team, $charIndex);
-            }
+        if ($type === 'skill') {
+            $result = $this->handleSkill($request, $active, $enemies, $game, $team, $activeCharIndex, $events);
+            if ($result) return $result;
+        } elseif ($type === 'switch') {
+            $result = $this->handleSwitch($request, $game, $team, $activeCharIndex, $events);
+            if ($result) return $result;
         } else {
-            $this->doEnemyAttacks($events, $aliveEnemies, $team, $charIndex);
-            if ($attacker->alive) {
-                $this->doPlayerAttack($events, $attacker, $skill, $target, $targetIndex);
-            }
+            return response()->json(['events' => [['type' => 'dialog', 'text' => 'Acción inválida.']]]);
         }
 
-        session(['enemies' => $enemies]);
+        $this->decrementCooldowns($active);
 
-        // Victoria
-        if ($enemies->every(fn($e) => !$e->alive)) {
-            $game->floor++;
-            $game->save();
-            session()->forget('enemies');
-            $finalChar = $this->resolveActiveChar($events, $charIndex);
-            session(['active_char_index' => $finalChar]);
-            $events[] = ['type' => 'victory', 'floor' => $game->floor];
-            return response()->json(['events' => $events]);
-        }
+        $this->enemyTurn($active, $enemies, $game, $team, $activeCharIndex, $events);
 
-        // Derrota
-        if ($team->every(fn($c) => !$c->alive)) {
+        session(["game_{$game->id}_enemies" => $enemies]);
+
+        $active->save();
+
+        $allDead = $team->every(fn($c) => !$c->alive);
+        if ($allDead) {
+            $events[] = ['type' => 'game_over'];
+            session()->forget("game_{$game->id}_enemies");
+            session()->forget("game_{$game->id}_turn");
             $game->characters()->delete();
             $game->delete();
-            session()->forget('enemies');
-            session()->forget('active_char_index');
-            $events[] = ['type' => 'game_over'];
             return response()->json(['events' => $events]);
         }
-
-        $finalChar = $this->resolveActiveChar($events, $charIndex);
-        session(['active_char_index' => $finalChar]);
 
         return response()->json(['events' => $events]);
     }
 
-    // Devuelve el char_index activo tras procesar todos los eventos (puede haber auto-switch)
-    private function resolveActiveChar(array $events, int $default): int
+    private function handleSkill(Request $request, $active, array &$enemies, $game, $team, int $activeCharIndex, array &$events): ?\Illuminate\Http\JsonResponse
     {
-        $last = $default;
-        foreach ($events as $ev) {
-            if ($ev['type'] === 'switch') $last = $ev['char_index'];
-        }
-        return $last;
-    }
+        $skillId = $request->input('skill_id');
+        $targetIndex = (int) $request->input('target_index', 0);
 
-    private function doPlayerAttack(array &$events, $attacker, $skill, $target, int $targetIndex): void
-    {
-        $dmg = $this->calcDamage(
-            $skill->damage, (bool) $skill->damage_type,
-            $attacker->special_attack, $attacker->physical_attack,
-            $target->special_defense,  $target->physical_defense
+        $skill = $active->skills()->where('skill_id', $skillId)->first();
+        if (!$skill || $skill->pivot->cooldown > 0) {
+            $events[] = ['type' => 'dialog', 'text' => 'Habilidad no disponible.'];
+            return response()->json(['events' => $events]);
+        }
+
+        $targetIdx = $this->findAliveEnemyIndex($enemies, $targetIndex);
+        if ($targetIdx === null) {
+            return $this->handleVictory($game, $enemies, $team, $events);
+        }
+
+        $target = &$enemies[$targetIdx];
+        $damage = $this->calculateDamage(
+            $active->physical_attack, $active->special_attack, $skill,
+            $target['physical_defense'], $target['special_defense']
         );
 
-        $events[] = ['type' => 'dialog', 'text' => "{$attacker->name} usa {$skill->name}!"];
-
-        $target->hp = max(0, $target->hp - $dmg);
-        if ($target->hp <= 0) { $target->alive = false; $target->hp = 0; }
-
+        $target['hp'] -= $damage;
+        $events[] = ['type' => 'dialog', 'text' => "{$active->name} usa {$skill->name}!"];
         $events[] = [
-            'type'  => 'hp_update', 'entity' => 'enemy',
-            'index' => $targetIndex,
-            'hp'    => $target->hp, 'max_hp' => $target->max_hp, 'damage' => $dmg,
+            'type' => 'hp_update', 'entity' => 'enemy', 'index' => $targetIdx,
+            'hp' => max(0, $target['hp']), 'max_hp' => $target['max_hp'],
         ];
 
-        if (!$target->alive) {
-            $events[] = ['type' => 'faint', 'entity' => 'enemy', 'index' => $targetIndex, 'name' => $target->name];
+        if ($target['hp'] <= 0) {
+            $target['hp'] = 0;
+            $target['alive'] = false;
+            $events[] = ['type' => 'faint', 'entity' => 'enemy', 'index' => $targetIdx, 'name' => $target['name']];
         }
+        unset($target);
+
+        $active->skills()->updateExistingPivot($skill->id, ['cooldown' => 1]);
+        $active->load('skills');
+
+        if ($this->allEnemiesDead($enemies)) {
+            return $this->handleVictory($game, $enemies, $team, $events);
+        }
+
+        return null;
     }
 
-    private function doEnemyAttacks(array &$events, $aliveEnemies, $team, int $activeCharIndex): void
+    private function handleSwitch(Request $request, $game, $team, int &$activeCharIndex, array &$events): ?\Illuminate\Http\JsonResponse
     {
-        foreach ($aliveEnemies as $eIdx => $enemy) {
-            $defender = $team[$activeCharIndex] ?? null;
-            if (!$defender || !$defender->alive) break;
+        $charIndex = (int) $request->input('char_index', 0);
+        $newChar = $team->get($charIndex);
 
-            $defIdx = $activeCharIndex;
-            $enemySkill = ($enemy->skills ?? collect())->isNotEmpty()
-                ? $enemy->skills->random()
-                : null;
+        if (!$newChar || !$newChar->alive) {
+            $events[] = ['type' => 'dialog', 'text' => 'Personaje inválido.'];
+            return response()->json(['events' => $events]);
+        }
 
-            $eDmg = $enemySkill
-                ? $this->calcDamage(
-                    $enemySkill->damage, (bool) $enemySkill->damage_type,
-                    $enemy->special_attack, $enemy->physical_attack,
-                    $defender->special_defense, $defender->physical_defense
-                )
-                : max(1, $enemy->physical_attack - $defender->physical_defense);
+        $activeCharIndex = $charIndex;
+        $game->update(['active_character_id' => $newChar->id]);
+        $events[] = ['type' => 'switch', 'char_index' => $charIndex, 'name' => $newChar->name];
+        return null;
+    }
 
-            $events[] = ['type' => 'dialog', 'text' => "{$enemy->name} ataca a {$defender->name}!"];
+    private function enemyTurn($active, array &$enemies, $game, $team, int $activeCharIndex, array &$events): void
+    {
+        $turnCount = session("game_{$game->id}_turn", 0) + 1;
+        session(["game_{$game->id}_turn" => $turnCount]);
 
-            $defender->hp = max(0, $defender->hp - $eDmg);
-            if ($defender->hp <= 0) { $defender->alive = false; $defender->hp = 0; }
+        $isFinalBoss = $game->floor === 50;
 
+        foreach ($enemies as &$enemy) {
+            if (!$enemy['alive']) continue;
+
+            if ($isFinalBoss && $turnCount > 1 && $turnCount % rand(2, 3) === 0) {
+                $fallen = $game->characters()
+                    ->where('recruited', true)->where('alive', false)
+                    ->get();
+
+                if ($fallen->isNotEmpty()) {
+                    $summoned = $fallen->random();
+                    $enemies[] = [
+                        'id'               => -$summoned->id,
+                        'name'             => $summoned->name,
+                        'hp'               => $summoned->max_hp,
+                        'max_hp'           => $summoned->max_hp,
+                        'physical_attack'  => $summoned->physical_attack,
+                        'special_attack'  => $summoned->special_attack,
+                        'physical_defense' => $summoned->physical_defense,
+                        'special_defense' => $summoned->special_defense,
+                        'speed'            => $summoned->speed,
+                        'level'            => $summoned->level,
+                        'alive'            => true,
+                        'skills'           => [],
+                    ];
+                    $events[] = ['type' => 'dialog', 'text' => "{$enemy['name']} invocó a {$summoned->name} del abismo!"];
+                    continue;
+                }
+            }
+
+            $skillData = $this->pickEnemySkill($enemy);
+            if (!$skillData) continue;
+
+            $damage = $this->calculateDamage(
+                $enemy['physical_attack'], $enemy['special_attack'],
+                (object) $skillData,
+                $active->physical_defense, $active->special_defense
+            );
+
+            $active->hp -= $damage;
+            $events[] = ['type' => 'dialog', 'text' => "{$enemy['name']} usa {$skillData['name']}!"];
             $events[] = [
-                'type'  => 'hp_update', 'entity' => 'player',
-                'index' => $defIdx,
-                'hp'    => $defender->hp, 'max_hp' => $defender->max_hp, 'damage' => $eDmg,
+                'type' => 'hp_update', 'entity' => 'player', 'index' => $activeCharIndex,
+                'hp' => max(0, $active->hp), 'max_hp' => $active->max_hp,
             ];
 
-            $defender->save();
+            if ($active->hp <= 0) {
+                $active->hp = 0;
+                $active->alive = false;
+                $active->save();
+                $events[] = ['type' => 'faint', 'entity' => 'player', 'index' => $activeCharIndex, 'name' => $active->name];
+                break;
+            }
+        }
+        unset($enemy);
+    }
 
-            if (!$defender->alive) {
-                $events[] = ['type' => 'faint', 'entity' => 'player', 'index' => $defIdx, 'name' => $defender->name];
+    private function pickEnemySkill(array $enemy): ?array
+    {
+        $skills = $enemy['skills'] ?? [];
+        if (empty($skills)) return null;
+        return $skills[array_rand($skills)];
+    }
+
+    private function calculateDamage(int $physAtk, int $specAtk, $skill, int $physDef, int $specDef): int
+    {
+        $isPhysical = is_object($skill) ? ($skill->damage_type ?? true) : ($skill['damage_type'] ?? true);
+        $damage = is_object($skill) ? ($skill->damage ?? 0) : ($skill['damage'] ?? 0);
+
+        if ($isPhysical) {
+            $raw = $damage + ($physAtk * 0.5) - ($physDef * 0.3);
+        } else {
+            $raw = $damage + ($specAtk * 0.5) - ($specDef * 0.3);
+        }
+
+        return max(1, (int) round($raw));
+    }
+
+    private function decrementCooldowns($character): void
+    {
+        foreach ($character->skills as $skill) {
+            if ($skill->pivot->cooldown > 0) {
+                $character->skills()->updateExistingPivot($skill->id, [
+                    'cooldown' => $skill->pivot->cooldown - 1,
+                ]);
             }
         }
     }
 
-    private function calcDamage(int $base, bool $special, int $atkSp, int $atkPh, int $defSp, int $defPh): int
+    private function findAliveEnemyIndex(array $enemies, int $preferred): ?int
     {
-        $atk = $special ? $atkSp : $atkPh;
-        $def = $special ? $defSp : $defPh;
-        return max(1, $base + $atk - $def);
+        if (isset($enemies[$preferred]) && $enemies[$preferred]['alive']) {
+            return $preferred;
+        }
+        foreach ($enemies as $i => $e) {
+            if ($e['alive']) return $i;
+        }
+        return null;
+    }
+
+    private function allEnemiesDead(array $enemies): bool
+    {
+        foreach ($enemies as $e) {
+            if ($e['alive']) return false;
+        }
+        return true;
+    }
+
+    private function handleVictory($game, array &$enemies, $team, array &$events): \Illuminate\Http\JsonResponse
+    {
+        $this->healPlayerTeam($game);
+        $game->increment('floor');
+        $floor = $game->fresh()->floor;
+
+        session(["game_{$game->id}_enemies" => []]);
+        session(["game_{$game->id}_turn" => 0]);
+
+        $events[] = ['type' => 'victory', 'floor' => $floor];
+
+        return response()->json(['events' => $events]);
+    }
+
+    private function healPlayerTeam($game): void
+    {
+        $chars = $game->characters()->where('recruited', true)->with('skills')->get();
+        foreach ($chars as $c) {
+            $c->hp = (int) round($c->max_hp * 0.5);
+            $c->alive = true;
+            $c->save();
+
+            foreach ($c->skills as $skill) {
+                $c->skills()->updateExistingPivot($skill->id, ['cooldown' => 0]);
+            }
+        }
+
+        $first = $game->characters()->where('recruited', true)->where('alive', true)->first();
+        if ($first) {
+            $game->update(['active_character_id' => $first->id]);
+        }
     }
 }

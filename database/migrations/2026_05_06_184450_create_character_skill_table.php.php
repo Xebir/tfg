@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('character_skill', function (Blueprint $table) {
             $table->foreignId('character_id')->constrained()->onDelete('cascade');
             $table->foreignId('skill_id')->constrained()->onDelete('cascade');
+            $table->integer('cooldown')->default(0);
             $table->primary(['character_id', 'skill_id']);
         });
 

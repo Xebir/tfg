@@ -45,6 +45,12 @@ class Character extends Model
 
     public function skills(): BelongsToMany
     {
-        return $this->belongsToMany(Skill::class, 'character_skill');
+        return $this->belongsToMany(Skill::class, 'character_skill')
+            ->withPivot('cooldown');
+    }
+
+    public function getUsableSkills(): BelongsToMany
+    {
+        return $this->skills()->wherePivot('cooldown', 0);
     }
 }

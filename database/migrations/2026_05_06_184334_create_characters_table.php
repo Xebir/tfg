@@ -36,6 +36,10 @@ return new class extends Migration
             $table->index('pasive_id');
             $table->index('alive');
         });
+
+        Schema::table('games', function (Blueprint $table) {
+            $table->foreignId('active_character_id')->nullable()->constrained('characters')->nullOnDelete();
+        });
     }
 
     /**

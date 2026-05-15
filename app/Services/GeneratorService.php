@@ -26,8 +26,13 @@ class GeneratorService
         'Zephyr', 'Crystal', 'Onyx', 'Ruby', 'Sapphire', 'Emerald', 'Topaz',
     ];
 
-    private const PLAYER_IMAGES = ['hero_1', 'hero_2', 'hero_3'];
-    private const ENEMY_IMAGES  = ['enemy_1', 'enemy_2', 'enemy_3', 'enemy_4', 'enemy_5'];
+    private const BOSS_NAMES = [
+        10 => 'Guardian Carmesí',
+        20 => 'Señor del Abismo',
+        30 => 'Titán de Sombras',
+        40 => 'Dragón Astral',
+        50 => 'El Vacío Primordial',
+    ];
 
     public function generatePlayerTeam(Game $game): Collection
     {
@@ -38,26 +43,25 @@ class GeneratorService
         for ($i = 0; $i < 5; $i++) {
             $isRecruited = $i < 3;
 
-            $stats = $this->generateStats(self::BASE_STATS['min'], self::BASE_STATS['max'], 1);
+            $stats = $this->generateStats(self::BASE_STATS['min'], self::BASE_STATS['max']);
             $randomSkills = $skills->random(min(4, $skills->count()));
             $randomPasive = $pasives->random();
 
             $character = Character::create([
-                'game_id'          => $game->id,
-                'name'             => $this->generateName(),
-                'pasive_id'        => $randomPasive->id,
-                'hp'               => $stats['hp'],
-                'max_hp'           => $stats['hp'],
+                'game_id'        => $game->id,
+                'name'           => $this->generateName(),
+                'pasive_id'      => $randomPasive->id,
+                'hp'             => $stats['hp'],
+                'max_hp'         => $stats['hp'],
                 'physical_attack'  => $stats['physical_attack'],
                 'special_attack'   => $stats['special_attack'],
                 'physical_defense' => $stats['physical_defense'],
-                'special_defense'  => $stats['special_defense'],
-                'speed'            => $stats['speed'],
-                'level'            => 1,
-                'exp'              => 0,
-                'recruited'        => $isRecruited,
-                'alive'            => true,
-                'imagen'           => self::PLAYER_IMAGES[$i % count(self::PLAYER_IMAGES)],
+                'special_defense'   => $stats['special_defense'],
+                'speed'          => $stats['speed'],
+                'level'          => 1,
+                'exp'            => 0,
+                'recruited'      => $isRecruited,
+                'alive'          => true,
             ]);
 
             $character->skills()->attach($randomSkills->pluck('id'));
@@ -76,54 +80,91 @@ class GeneratorService
         $minStats = (int) floor(self::ENEMY_BASE_STATS['min'] * $scalingFactor);
         $maxStats = (int) floor(self::ENEMY_BASE_STATS['max'] * $scalingFactor);
 
-        $enemyCount = $floor <= 3 ? 2 : 3;
+        $enemyCount = ($floor <= 3) ? 2 : 3;
         $enemies = [];
 
         for ($i = 0; $i < $enemyCount; $i++) {
-            $stats = $this->generateStats($minStats, $maxStats, $floor);
-
-            $enemy = new Character([
-                'game_id'          => 0,
-                'name'             => $this->generateName(),
-                'pasive_id'        => $pasives->random()->id,
-                'hp'               => $stats['hp'],
-                'max_hp'           => $stats['hp'],
-                'physical_attack'  => $stats['physical_attack'],
-                'special_attack'   => $stats['special_attack'],
-                'physical_defense' => $stats['physical_defense'],
-                'special_defense'  => $stats['special_defense'],
-                'speed'            => $stats['speed'],
-                'level'            => $floor,
-                'exp'              => 0,
-                'recruited'        => false,
-                'alive'            => true,
-                'imagen'           => self::ENEMY_IMAGES[$i % count(self::ENEMY_IMAGES)],
-            ]);
-
-            $randomSkills = $skills->random(min(4, $skills->count()));
-            $enemy->setRelation('skills', $randomSkills);
-
-            $enemies[] = $enemy;
+            $enemies[] = $this->makeEnemy($minStats, $maxStats, $pasives, $skills, $floor);
         }
 
         return collect($enemies);
     }
 
-    private function generateStats(int $min, int $max, int $floor): array
+    public function generateMiniboss(int $floor): Collection
     {
-        return [
-            'hp'               => $this->randomStat($min, $max),
-            'physical_attack'  => $this->randomStat($min, $max),
-            'special_attack'   => $this->randomStat($min, $max),
-            'physical_defense' => $this->randomStat($min, $max),
-            'special_defense'  => $this->randomStat($min, $max),
-            'speed'            => $this->randomStat($min, $max),
-        ];
+        $pasives = Pasive::all();
+        $skills = Skill::all();
+
+        $scalingFactor = 1 + (($floor - 1) * 0.15);
+        $minStats = (int) floor(self::ENEMY_BASE_STATS['min'] * $scalingFactor * 2.5);
+        $maxStats = (int) floor(self::ENEMY_BASE_STATS['max'] * $scalingFactor * 2.5);
+
+        $bossName = self::BOSS_NAMES[$floor] ?? "Miniboss Piso $floor";
+        $boss = $this->makeEnemy($minStats, $maxStats, $pasives, $skills, $floor, $bossName, 5);
+        $boss->setRelation('skills', $skills->random(min(4, $skills->count())));
+
+        return collect([$boss]);
     }
 
-    private function randomStat(int $min, int $max): int
+    public function generateFinalBoss(int $floor): Collection
     {
-        return rand($min, $max);
+        $pasives = Pasive::all();
+        $skills = Skill::all();
+
+        $scalingFactor = 1 + (($floor - 1) * 0.15);
+        $minStats = (int) floor(self::ENEMY_BASE_STATS['min'] * $scalingFactor * 4);
+        $maxStats = (int) floor(self::ENEMY_BASE_STATS['max'] * $scalingFactor * 4);
+
+        $boss = $this->makeEnemy(
+            $minStats, $maxStats, $pasives, $skills, $floor,
+            self::BOSS_NAMES[50], 5
+        );
+        $boss->pasive_id = $pasives->where('name', 'Regeneración')->first()?->id ?? $pasives->random()->id;
+        $boss->setRelation('skills', $skills->random(min(4, $skills->count())));
+        $boss->can_summon = true;
+
+        return collect([$boss]);
+    }
+
+    private function makeEnemy(
+        int $min, int $max, Collection $pasives, Collection $skills,
+        int $floor, ?string $name = null, int $skillCount = 4
+    ): Character {
+        $stats = $this->generateStats($min, $max);
+
+        $enemy = new Character([
+            'game_id'           => 0,
+            'name'              => $name ?? $this->generateName(),
+            'pasive_id'         => $pasives->random()->id,
+            'hp'                => $stats['hp'],
+            'max_hp'            => $stats['hp'],
+            'physical_attack'   => $stats['physical_attack'],
+            'special_attack'   => $stats['special_attack'],
+            'physical_defense' => $stats['physical_defense'],
+            'special_defense'  => $stats['special_defense'],
+            'speed'             => $stats['speed'],
+            'level'             => $floor,
+            'exp'               => 0,
+            'recruited'         => false,
+            'alive'             => true,
+        ]);
+
+        $randomSkills = $skills->random(min($skillCount, $skills->count()));
+        $enemy->setRelation('skills', $randomSkills);
+
+        return $enemy;
+    }
+
+    private function generateStats(int $min, int $max): array
+    {
+        return [
+            'hp'               => rand($min, $max),
+            'physical_attack'  => rand($min, $max),
+            'special_attack'   => rand($min, $max),
+            'physical_defense' => rand($min, $max),
+            'special_defense'  => rand($min, $max),
+            'speed'            => rand($min, $max),
+        ];
     }
 
     private function generateName(): string

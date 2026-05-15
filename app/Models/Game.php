@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Game extends Model
 {
-    protected $fillable = ['user_id', 'floor'];
+    protected $fillable = ['user_id', 'floor', 'active_character_id'];
 
     public function user(): BelongsTo
     {
@@ -18,5 +18,10 @@ class Game extends Model
     public function characters(): HasMany
     {
         return $this->hasMany(Character::class);
+    }
+
+    public function activeCharacter(): BelongsTo
+    {
+        return $this->belongsTo(Character::class, 'active_character_id');
     }
 }

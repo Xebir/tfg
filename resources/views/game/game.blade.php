@@ -470,6 +470,69 @@
         #battle-form { display: none; }
 
         /* ══════════════════════════════════════
+           STAT TOOLTIP (hover)
+        ══════════════════════════════════════ */
+        .stat-tooltip {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) scale(.85);
+            background: rgba(10, 3, 25, .95);
+            border: 1px solid rgba(124,58,237,.5);
+            border-radius: 8px;
+            padding: 8px 12px;
+            min-width: 160px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .2s, transform .2s;
+            z-index: 100;
+            box-shadow: 0 8px 24px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05);
+        }
+        .enemy-figure:hover .stat-tooltip,
+        .p-sprite-wrap:hover .stat-tooltip {
+            opacity: 1;
+            transform: translateX(-50%) scale(1);
+        }
+        .stat-tooltip .tt-name {
+            font-size: .45rem;
+            color: #c4b5fd;
+            letter-spacing: .08em;
+            margin-bottom: 4px;
+            white-space: nowrap;
+        }
+        .stat-tooltip .tt-hp {
+            font-size: .38rem;
+            color: #a78bfa;
+            margin-bottom: 6px;
+        }
+        .stat-tooltip .tt-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3px 8px;
+            font-size: .35rem;
+        }
+        .stat-tooltip .tt-grid span {
+            color: rgba(203,213,225,.8);
+            letter-spacing: .04em;
+        }
+        .stat-tooltip .tt-grid .tt-label { color: rgba(148,163,184,.5); }
+        .stat-tooltip .tt-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(124,58,237,.4), transparent);
+            margin: 4px 0;
+        }
+        .p-sprite-wrap {
+            position: relative;
+        }
+        .stat-tooltip--player {
+            bottom: auto;
+            top: calc(100% + 8px);
+            left: 50%;
+            border-color: rgba(6,182,212,.4);
+        }
+        .stat-tooltip--player .tt-name { color: #67e8f9; }
+
+        /* ══════════════════════════════════════
            MODAL GAME OVER
         ══════════════════════════════════════ */
         .game-over-overlay {
@@ -610,6 +673,19 @@
                                 'nombre' => $enemy->name,
                                 'size'   => $j === 0 ? 80 : 60,
                             ])
+                            <div class="stat-tooltip">
+                                <div class="tt-name">{{ $enemy->name }}</div>
+                                <div class="tt-hp">HP {{ $enemy->hp }}/{{ $enemy->max_hp }}</div>
+                                <div class="tt-divider"></div>
+                                <div class="tt-grid">
+                                    <span><span class="tt-label">ATK</span> {{ $enemy->physical_attack }}</span>
+                                    <span><span class="tt-label">SP.ATK</span> {{ $enemy->special_attack }}</span>
+                                    <span><span class="tt-label">DEF</span> {{ $enemy->physical_defense }}</span>
+                                    <span><span class="tt-label">SP.DEF</span> {{ $enemy->special_defense }}</span>
+                                    <span><span class="tt-label">SPD</span> {{ $enemy->speed }}</span>
+                                    <span><span class="tt-label">Nv</span> {{ $enemy->level }}</span>
+                                </div>
+                            </div>
                         </div>
                     @endforeach
                 </div>
@@ -645,15 +721,31 @@
                 ];
             @endphp
 
+            @php $active = $team[$activeCharIndex]; @endphp
             <div class="player-sprite-area" id="player-sprite">
                 <div class="player-figure">
-                    <div class="p-sprite" id="p-svg-wrap" style="{{ $charColors[$activeCharIndex]['style'] }}">
-                        <div class="p-aura"></div>
-                        @include('game.sprites.player', [
-                            'imagen' => $team[$activeCharIndex]->imagen ?? 'hero_1',
-                            'nombre' => $team[$activeCharIndex]->name,
-                            'size'   => 80,
-                        ])
+                    <div class="p-sprite-wrap">
+                        <div class="p-sprite" id="p-svg-wrap" style="{{ $charColors[$activeCharIndex]['style'] }}">
+                            <div class="p-aura"></div>
+                            @include('game.sprites.player', [
+                                'imagen' => $active->imagen ?? 'hero_1',
+                                'nombre' => $active->name,
+                                'size'   => 80,
+                            ])
+                        </div>
+                        <div class="stat-tooltip stat-tooltip--player">
+                            <div class="tt-name">{{ $active->name }}</div>
+                            <div class="tt-hp">HP {{ $active->hp }}/{{ $active->max_hp }}</div>
+                            <div class="tt-divider"></div>
+                            <div class="tt-grid">
+                                <span><span class="tt-label">ATK</span> {{ $active->physical_attack }}</span>
+                                <span><span class="tt-label">SP.ATK</span> {{ $active->special_attack }}</span>
+                                <span><span class="tt-label">DEF</span> {{ $active->physical_defense }}</span>
+                                <span><span class="tt-label">SP.DEF</span> {{ $active->special_defense }}</span>
+                                <span><span class="tt-label">SPD</span> {{ $active->speed }}</span>
+                                <span><span class="tt-label">Nv</span> {{ $active->level }}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
