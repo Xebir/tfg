@@ -50,7 +50,12 @@ class User extends Authenticatable
 
     public function game()
     {
-        return $this->hasOne(Game::class);
+        return $this->hasOne(Game::class)->where('status', 'active');
+    }
+
+    public function games()
+    {
+        return $this->hasMany(Game::class)->orderBy('created_at', 'desc');
     }
 
 }

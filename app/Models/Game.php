@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Game extends Model
 {
-    protected $fillable = ['user_id', 'floor', 'active_character_id'];
+    protected $fillable = ['user_id', 'floor', 'active_character_id', 'status'];
 
     public function user(): BelongsTo
     {
@@ -23,5 +23,10 @@ class Game extends Model
     public function activeCharacter(): BelongsTo
     {
         return $this->belongsTo(Character::class, 'active_character_id');
+    }
+
+    public function scopeActive($q)
+    {
+        return $q->where('status', 'active');
     }
 }

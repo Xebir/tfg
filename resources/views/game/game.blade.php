@@ -991,6 +991,12 @@
                         window.location.reload();
                         return;
 
+                    case 'game_won':
+                        setDialog('Has conquistado el Abyssal Rift! Victoria total!');
+                        await sleep(2500);
+                        window.location.reload();
+                        return;
+
                     case 'game_over':
                         await sleep(600);
                         showGameOverModal();

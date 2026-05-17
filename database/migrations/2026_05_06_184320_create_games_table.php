@@ -15,6 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->integer('floor')->default(1);
+            $table->string('status', 20)->default('active');
             $table->timestamps();
         });
 

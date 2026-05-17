@@ -30,12 +30,13 @@ class GameController extends Controller
             session()->forget("game_{$existingGame->id}_enemies");
             session()->forget("game_{$existingGame->id}_turn");
             $existingGame->characters()->delete();
-            $existingGame->delete();
+            $existingGame->update(['status' => 'abandoned']);
         }
 
         $game = Game::create([
             'user_id' => $user->id,
             'floor'   => 1,
+            'status'  => 'active',
         ]);
 
         $this->generator->generatePlayerTeam($game);
@@ -132,7 +133,12 @@ class GameController extends Controller
 
     public function historial()
     {
-        return view('game.historial');
+        $games = Auth::user()->games()
+            ->where('status', '!=', 'active')
+            ->withCount('characters')
+            ->get();
+
+        return view('game.historial', compact('games'));
     }
 
     public function finish(Request $request)
@@ -143,7 +149,7 @@ class GameController extends Controller
             session()->forget("game_{$game->id}_enemies");
             session()->forget("game_{$game->id}_turn");
             $game->characters()->delete();
-            $game->delete();
+            $game->update(['status' => 'abandoned']);
         }
 
         return redirect()->route('menu');

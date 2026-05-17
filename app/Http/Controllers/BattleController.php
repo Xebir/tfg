@@ -78,7 +78,7 @@ class BattleController extends Controller
             session()->forget("game_{$game->id}_enemies");
             session()->forget("game_{$game->id}_turn");
             $game->characters()->delete();
-            $game->delete();
+            $game->update(['status' => 'lost']);
 
             return response()->json(['events' => $events]);
         }
@@ -332,6 +332,12 @@ class BattleController extends Controller
 
         session(["game_{$game->id}_enemies" => []]);
         session(["game_{$game->id}_turn" => 0]);
+
+        if ($floor > 50) {
+            $game->update(['status' => 'won']);
+            $events[] = ['type' => 'game_won'];
+            return response()->json(['events' => $events]);
+        }
 
         $events[] = ['type' => 'victory', 'floor' => $floor];
 
